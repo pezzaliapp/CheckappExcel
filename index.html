@@ -32,14 +32,30 @@
   }
   .card h2{margin:0 0 12px; font-size:18px}
   .drop{
-    border:2px dashed var(--border); border-radius:12px; padding:28px;
+    border:2px dashed var(--border); border-radius:12px; padding:32px 20px;
     text-align:center; cursor:pointer; transition:.15s;
     background:#fafbfd;
   }
   .drop:hover, .drop.hover{border-color:var(--accent); background:#eef5fb}
-  .drop strong{color:var(--accent)}
-  .drop small{display:block; color:var(--muted); margin-top:6px}
-  input[type=file]{display:none}
+  .drop:focus{outline:none}
+  .drop:focus-visible{border-color:var(--accent); box-shadow:0 0 0 3px rgba(31,119,180,.22)}
+  .drop .drop-icon{font-size:32px; display:block; margin-bottom:4px}
+  .drop .drop-title{font-size:15px; font-weight:500; margin-bottom:6px}
+  .drop .drop-hint{display:block; color:var(--muted); font-size:13px; margin-bottom:14px}
+  .drop .drop-btn{
+    display:inline-block; padding:9px 20px; border-radius:8px;
+    background:var(--accent); color:#fff; font-weight:500; font-size:14px;
+    border:none; cursor:pointer; transition:.15s;
+  }
+  .drop .drop-btn:hover{background:var(--accent-dark)}
+  /* File input nascosto in modo robusto (visually-hidden pattern) */
+  .visually-hidden{
+    position:absolute !important;
+    width:1px !important; height:1px !important;
+    padding:0 !important; margin:-1px !important;
+    overflow:hidden !important; clip:rect(0 0 0 0) !important;
+    white-space:nowrap !important; border:0 !important;
+  }
   table.files{width:100%; border-collapse:collapse; margin-top:12px}
   table.files th, table.files td{
     padding:8px 10px; border-bottom:1px solid var(--border);
@@ -97,11 +113,13 @@
 <main>
   <div class="card">
     <h2>1. Carica i file</h2>
-    <label for="file-input" class="drop" id="drop-zone">
-      <div>📁 <strong>Clicca qui</strong> o trascina i file Excel/CSV</div>
-      <small>Formati supportati: .xlsx, .xlsm, .xls, .csv, .tsv — minimo 2 file</small>
-    </label>
-    <input type="file" id="file-input" multiple accept=".xlsx,.xlsm,.xls,.csv,.tsv">
+    <div class="drop" id="drop-zone" role="button" tabindex="0" aria-label="Seleziona o trascina file Excel/CSV">
+      <span class="drop-icon">📁</span>
+      <div class="drop-title">Trascina qui i tuoi file Excel o CSV</div>
+      <small class="drop-hint">Formati supportati: .xlsx, .xlsm, .xls, .csv, .tsv — minimo 2 file</small>
+      <button type="button" class="drop-btn" id="pick-btn">Seleziona file dal computer</button>
+    </div>
+    <input type="file" id="file-input" class="visually-hidden" multiple accept=".xlsx,.xlsm,.xls,.csv,.tsv" tabindex="-1" aria-hidden="true">
 
     <table class="files" id="file-table" style="display:none">
       <thead>
@@ -562,13 +580,21 @@ const fileInput = document.getElementById('file-input');
 const fileList  = document.getElementById('file-list');
 const fileTable = document.getElementById('file-table');
 const dropZone  = document.getElementById('drop-zone');
+const pickBtn   = document.getElementById('pick-btn');
 const runBtn    = document.getElementById('run-btn');
 const statusEl  = document.getElementById('status');
 const progressEl= document.getElementById('progress');
 const resultsEl = document.getElementById('results');
 const statsEl   = document.getElementById('stats');
 
+function openFileDialog(){ fileInput.click(); }
+
 fileInput.addEventListener('change', e => addFiles(Array.from(e.target.files)));
+pickBtn.addEventListener('click', e => { e.stopPropagation(); openFileDialog(); });
+dropZone.addEventListener('click', e => { if (e.target === pickBtn) return; openFileDialog(); });
+dropZone.addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openFileDialog(); }
+});
 ['dragenter','dragover'].forEach(ev => dropZone.addEventListener(ev, e => {e.preventDefault(); dropZone.classList.add('hover');}));
 ['dragleave','drop'].forEach(ev => dropZone.addEventListener(ev, e => {e.preventDefault(); dropZone.classList.remove('hover');}));
 dropZone.addEventListener('drop', e => {
