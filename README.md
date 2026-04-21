@@ -198,3 +198,9 @@ CheckappExcel/
 ## 📄 Licenza
 
 MIT — vedi [LICENSE](LICENSE).
+
+## 👤 Autore
+
+**Alessandro Pezzali** — [github.com/pezzaliapp](https://github.com/pezzaliapp) · [alessandropezzali.it](https://www.alessandropezzali.it)
+
+Se CheckappExcel ti è stato utile, lascia una ⭐ sul repo: aiuta a farlo trovare ad altri.
