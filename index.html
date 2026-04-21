@@ -13,6 +13,12 @@
 <link rel="alternate icon" type="image/png" href="assets/apple-touch-icon.png">
 <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png">
 
+<!-- PWA -->
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="CheckappExcel">
+
 <!-- Open Graph (Facebook, WhatsApp, LinkedIn) -->
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="CheckappExcel">
@@ -51,6 +57,13 @@
   }
   header h1{margin:0; font-size:28px; font-weight:700}
   header p{margin:6px 0 0; opacity:.95; font-size:15px}
+  .install-btn{
+    margin-top:14px; padding:8px 18px; border-radius:20px;
+    background:rgba(255,255,255,.18); color:#fff; border:1px solid rgba(255,255,255,.4);
+    font:inherit; font-size:14px; font-weight:500; cursor:pointer;
+    backdrop-filter:blur(6px); transition:.15s;
+  }
+  .install-btn:hover{background:rgba(255,255,255,.28); border-color:rgba(255,255,255,.6)}
   main{max-width:960px; margin:0 auto; padding:24px 16px 60px}
   .card{
     background:var(--card); border:1px solid var(--border); border-radius:12px;
@@ -139,6 +152,7 @@
 <header>
   <h1>📊 CheckappExcel</h1>
   <p>Confronta due o più file Excel/CSV di listini per codice prodotto</p>
+  <button type="button" id="install-btn" class="install-btn" hidden>⬇ Installa l'app</button>
 </header>
 
 <main>
@@ -217,6 +231,10 @@
         📖 Vedi su GitHub
       </a>
     </div>
+    <p style="margin:14px 0 0; color:var(--muted); font-size:13px">
+      💡 <strong>Su iPhone/iPad</strong>: apri questa pagina con Safari, tocca l'icona
+      Condividi → "Aggiungi alla schermata Home" per installare l'app.
+    </p>
   </div>
 
   <div class="footer">
@@ -234,13 +252,21 @@ const COLUMN_ALIASES = {
   codice: ['codice','cod','cod.','cod prodotto','codice prodotto','codice articolo',
            'articolo','sku','id','item code','code'],
   descrizione: ['descrizione','desc','desc.','descrizione prodotto','denominazione',
-                'nome','description','prodotto','product'],
+                'nome','description','prodotto','product',
+                'descrizione tecnica','descrizione commerciale','descrizione breve',
+                'nome breve','nome commerciale','nome prodotto','nome articolo',
+                'titolo','item description','product description'],
   prezzo: ['prezzo','prezzo unitario','prezzo netto','prezzo listino','importo',
-           'costo','price','unit price'],
+           'costo','price','unit price',
+           'prezzo lordo','prezzolordo','prezzo netto listino',
+           'listino','list price','net price','gross price'],
   trasporto: ['trasporto','spese trasporto','spedizione','costo trasporto',
-              'shipping','transport'],
+              'costotrasporto','spese di trasporto','shipping','transport',
+              'shipping cost','trasporto e spedizione','spese spedizione'],
   installazione: ['installazione','montaggio','installazione/montaggio',
-                  'costo installazione','installation','setup'],
+                  'costo installazione','costoinstallazione','costo montaggio',
+                  'spese installazione','spese montaggio','setup',
+                  'installation','installation cost','assembly'],
 };
 const COMPARISON_FIELDS = ['descrizione','prezzo','trasporto','installazione'];
 const FILE_COLORS = ['1F77B4','2CA02C','FF7F0E','9467BD','17BECF','BCBD22','8C564B','E377C2'];
@@ -262,7 +288,15 @@ const ALIAS_LOOKUP = (() => {
   return map;
 })();
 
-function norm(s){ return String(s ?? '').trim().toLowerCase().replace(/\s+/g,' '); }
+function norm(s){
+  let v = String(s ?? '').trim().toLowerCase();
+  v = v.replace(/[_\-\/]+/g, ' ');        // underscore/trattino/slash → spazio
+  v = v.replace(/\s+/g, ' ').trim();       // spazi multipli
+  // rimuovi suffisso valuta finale: eur, euro, €, usd, $
+  v = v.replace(/\s*[\(\[]?\s*(eur|euro|€|usd|\$)\s*[\)\]]?\s*$/i, '').trim();
+  v = v.replace(/^[\.\,\:;]+|[\.\,\:;]+$/g, '').trim();
+  return v;
+}
 
 function normalizeCode(v, {caseSensitive, strip=true}){
   if (v === null || v === undefined) return null;
@@ -296,10 +330,52 @@ async function readFile(file){
   const wb = XLSX.read(buf, {type:'array', cellDates:false, raw:false});
   const sheets = {};
   for (const name of wb.SheetNames){
-    const json = XLSX.utils.sheet_to_json(wb.Sheets[name], {defval:null, raw:true});
-    if (json && json.length) sheets[name] = json;
+    // Leggi come array-of-arrays così possiamo fare auto-detect dell'header
+    const aoa = XLSX.utils.sheet_to_json(wb.Sheets[name], {
+      header:1, defval:null, raw:true, blankrows:false
+    });
+    if (aoa && aoa.length) sheets[name] = aoa;
   }
   return {name:file.name, ext, sheets};
+}
+
+function scoreHeaderRow(values){
+  // Conta quanti campi canonici distinti riconosciamo in una riga
+  const seen = new Set();
+  for (const v of values){
+    if (v === null || v === undefined) continue;
+    const canon = ALIAS_LOOKUP[norm(v)];
+    if (canon) seen.add(canon);
+  }
+  return seen.size;
+}
+
+function detectHeaderIndex(aoa, maxScan=10){
+  // Se la riga 0 non è un header buono, cerca fino a maxScan righe più in basso
+  let bestIdx = 0;
+  let bestScore = aoa[0] ? scoreHeaderRow(aoa[0]) : 0;
+  const limit = Math.min(maxScan, aoa.length);
+  for (let i = 1; i < limit; i++){
+    const s = scoreHeaderRow(aoa[i]);
+    if (s > bestScore){ bestScore = s; bestIdx = i; }
+  }
+  // richiede almeno 2 campi riconosciuti (codice + uno)
+  return bestScore >= 2 ? bestIdx : 0;
+}
+
+function aoaToObjects(aoa){
+  if (!aoa || !aoa.length) return [];
+  const headerIdx = detectHeaderIndex(aoa);
+  const headers = aoa[headerIdx].map(h => (h === null || h === undefined) ? '' : String(h));
+  const out = [];
+  for (let i = headerIdx + 1; i < aoa.length; i++){
+    const row = aoa[i];
+    if (!row || row.every(c => c === null || c === undefined || c === '')) continue;
+    const obj = {};
+    headers.forEach((h, j) => { if (h) obj[h] = row[j] ?? null; });
+    out.push(obj);
+  }
+  return out;
 }
 
 function guessColumns(rows){
@@ -313,7 +389,10 @@ function guessColumns(rows){
   return map;
 }
 
-function normalizeSheet(rows, opts){
+function normalizeSheet(aoa, opts){
+  // aoa = array-of-arrays (leggiamo con header:1)
+  const rows = aoaToObjects(aoa);
+  if (!rows.length) return null;
   const colmap = guessColumns(rows);
   if (!colmap.codice) return null;
   const seen = new Set();
@@ -340,15 +419,34 @@ function flattenSource(source, label, opts){
   if (!sheetEntries.length) return result;
 
   if (opts.mergeSheets || sheetEntries.length === 1){
-    const merged = [];
-    const seen = new Set();
-    for (const [,rows] of sheetEntries){
+    if (sheetEntries.length === 1){
+      result.push({label, rows: sheetEntries[0][1]});
+      return result;
+    }
+    // Merge intelligente: per ogni codice, riempi i campi vuoti
+    // con i valori trovati negli altri fogli.
+    const combined = new Map();  // codice -> record
+    const order = [];
+
+    const isEmpty = v => v === null || v === undefined
+      || (typeof v === 'number' && isNaN(v))
+      || (typeof v === 'string' && v.trim() === '');
+
+    for (const [, rows] of sheetEntries){
       for (const r of rows){
-        if (seen.has(r.codice)) continue;
-        seen.add(r.codice);
-        merged.push(r);
+        if (!combined.has(r.codice)){
+          const rec = {codice: r.codice};
+          for (const f of COMPARISON_FIELDS) rec[f] = null;
+          combined.set(r.codice, rec);
+          order.push(r.codice);
+        }
+        const rec = combined.get(r.codice);
+        for (const f of COMPARISON_FIELDS){
+          if (isEmpty(rec[f]) && !isEmpty(r[f])) rec[f] = r[f];
+        }
       }
     }
+    const merged = order.map(c => combined.get(c));
     result.push({label, rows: merged});
   } else {
     for (const [name, rows] of sheetEntries){
@@ -779,6 +877,41 @@ function formatSize(n){
   if (n < 1024*1024) return (n/1024).toFixed(1) + ' KB';
   return (n/1024/1024).toFixed(1) + ' MB';
 }
+
+/* ========================================================================
+   PWA — service worker + install prompt
+   ======================================================================== */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(err => {
+      console.warn('Service worker registration failed:', err);
+    });
+  });
+}
+
+let deferredPrompt = null;
+const installBtn = document.getElementById('install-btn');
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredPrompt = e;
+  if (installBtn) installBtn.hidden = false;
+});
+
+if (installBtn) {
+  installBtn.addEventListener('click', async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    if (outcome === 'accepted') installBtn.hidden = true;
+  });
+}
+
+window.addEventListener('appinstalled', () => {
+  if (installBtn) installBtn.hidden = true;
+  deferredPrompt = null;
+});
 </script>
 </body>
 </html>

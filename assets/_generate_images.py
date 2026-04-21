@@ -107,6 +107,55 @@ fd.line([(122, 132), (134, 144), (156, 118)], fill="#FFFFFF", width=7)
 
 fav.save(BASE / "apple-touch-icon.png", "PNG", optimize=True)
 
+# ---------------------------------------------------------------------------
+# Icone PWA: 192x192 e 512x512 standard + 512x512 maskable (safe zone)
+# ---------------------------------------------------------------------------
+def make_icon(size, maskable=False):
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    # sfondo arrotondato blu. Per maskable -> safe zone: il contenuto vero
+    # sta nel 80% centrale, quindi il badge diventa un quadrato pieno
+    if maskable:
+        # Android taglia in cerchio/squircle, quindi sfondo pieno (no bordi arrotondati)
+        d.rectangle([0, 0, size, size], fill="#1F77B4")
+        safe_margin = int(size * 0.12)  # area sicura 76% al centro
+    else:
+        r = int(size * 0.22)
+        d.rounded_rectangle([0, 0, size, size], radius=r, fill="#1F77B4")
+        safe_margin = int(size * 0.14)
+
+    s = size - 2 * safe_margin
+    # proporzioni replicate dall'apple-touch (180x180 origine)
+    def sx(px): return safe_margin + int(px / 180 * s)
+    def sy(px): return safe_margin + int(px / 180 * s)
+
+    # foglio 1
+    d.rounded_rectangle([sx(26), sy(36), sx(110), sy(150)],
+                        radius=max(4, int(size*0.045)), fill="#FFFFFF")
+    # foglio 2
+    d.rounded_rectangle([sx(66), sy(50), sx(154), sy(160)],
+                        radius=max(4, int(size*0.045)), fill="#FFFFFF")
+    for i, c in enumerate(["#C6EFCE", "#FCE4D6", "#FFF2CC"]):
+        y = 66 + i * 22
+        d.rectangle([sx(78), sy(y), sx(142), sy(y + 12)], fill=c)
+    # badge check verde
+    d.ellipse([sx(108), sy(100), sx(170), sy(162)],
+              fill="#2CA02C", outline="#FFFFFF", width=max(2, size//45))
+    # check
+    d.line([(sx(122), sy(132)), (sx(134), sy(144)), (sx(156), sy(118))],
+           fill="#FFFFFF", width=max(3, size//26))
+
+    # per i non-maskable convertiamo in RGB mantenendo il background trasparente
+    # ma in realtà il PNG RGBA va bene uguale
+    return img
+
+make_icon(192).save(BASE / "icon-192.png", "PNG", optimize=True)
+make_icon(512).save(BASE / "icon-512.png", "PNG", optimize=True)
+make_icon(512, maskable=True).save(BASE / "icon-512-maskable.png", "PNG", optimize=True)
+
 print("Creati:")
 print(" -", BASE / "og-image.png")
 print(" -", BASE / "apple-touch-icon.png")
+print(" -", BASE / "icon-192.png")
+print(" -", BASE / "icon-512.png")
+print(" -", BASE / "icon-512-maskable.png")

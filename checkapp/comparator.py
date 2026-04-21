@@ -32,18 +32,26 @@ DEFAULT_COLUMN_ALIASES: Dict[str, List[str]] = {
     "descrizione": [
         "descrizione", "desc", "desc.", "descrizione prodotto",
         "denominazione", "nome", "description", "prodotto", "product",
+        "descrizione tecnica", "descrizione commerciale", "descrizione breve",
+        "nome breve", "nome commerciale", "nome prodotto", "nome articolo",
+        "titolo", "item description", "product description",
     ],
     "prezzo": [
         "prezzo", "prezzo unitario", "prezzo netto", "prezzo listino",
         "importo", "costo", "price", "unit price",
+        "prezzo lordo", "prezzolordo", "prezzo netto listino",
+        "listino", "list price", "net price", "gross price",
     ],
     "trasporto": [
         "trasporto", "spese trasporto", "spedizione", "costo trasporto",
-        "shipping", "transport",
+        "costotrasporto", "spese di trasporto", "shipping", "transport",
+        "shipping cost", "trasporto e spedizione", "spese spedizione",
     ],
     "installazione": [
         "installazione", "montaggio", "installazione/montaggio",
-        "costo installazione", "installation", "setup",
+        "costo installazione", "costoinstallazione", "costo montaggio",
+        "spese installazione", "spese montaggio", "setup",
+        "installation", "installation cost", "assembly",
     ],
 }
 
@@ -104,7 +112,23 @@ class CompareOptions:
 # ---------------------------------------------------------------------------
 
 def _norm(s: str) -> str:
-    return str(s).strip().lower().replace("  ", " ")
+    """Normalizza un nome colonna.
+
+    - lowercase, trim
+    - underscore/trattini → spazio
+    - spazi multipli → singolo
+    - rimuove suffissi valuta (eur, euro, €, usd, $) dal finale
+    - rimuove punteggiatura comune ai bordi
+    """
+    import re
+    s = str(s).strip().lower()
+    s = s.replace("_", " ").replace("-", " ").replace("/", " ")
+    s = re.sub(r"\s+", " ", s).strip()
+    # rimuovi suffissi valuta
+    s = re.sub(r"\s*[\(\[]?\s*(eur|euro|€|usd|\$)\s*[\)\]]?\s*$", "", s).strip()
+    # rimuovi punteggiatura estrema
+    s = s.strip(".,:;")
+    return s
 
 
 def _build_alias_lookup(aliases: Dict[str, List[str]]) -> Dict[str, str]:
@@ -129,6 +153,37 @@ def _guess_columns(df: pd.DataFrame, alias_lookup: Dict[str, str]) -> Dict[str, 
         if canon and canon not in result:
             result[canon] = col
     return result
+
+
+def _score_header_row(values: List, alias_lookup: Dict[str, str]) -> int:
+    """Conta quante celle di una riga sembrano un header canonico."""
+    canonical_seen = set()
+    for v in values:
+        if v is None:
+            continue
+        canon = alias_lookup.get(_norm(v))
+        if canon:
+            canonical_seen.add(canon)
+    return len(canonical_seen)
+
+
+def _detect_header_row(df: pd.DataFrame, alias_lookup: Dict[str, str],
+                       max_scan: int = 10) -> Optional[int]:
+    """Se l'header non è la riga 0, cerca quale delle prime max_scan
+    righe sembra contenere i nomi colonna. Ritorna l'indice 0-based
+    della riga, oppure None se non trovato."""
+    # riga 0 (colonne correnti) come baseline
+    best_row = -1  # -1 = colonne già OK
+    best_score = _score_header_row(list(df.columns), alias_lookup)
+    for i in range(min(max_scan, len(df))):
+        score = _score_header_row(list(df.iloc[i].values), alias_lookup)
+        if score > best_score:
+            best_score = score
+            best_row = i
+    # serve almeno codice + 1 altro campo perché valga la pena promuoverla
+    if best_row >= 0 and best_score >= 2:
+        return best_row
+    return None
 
 
 def _normalize_code(value, *, case_sensitive: bool, strip: bool) -> Optional[str]:
@@ -219,8 +274,14 @@ def load_source(path: str, label: Optional[str] = None,
 def _normalize_df(df: pd.DataFrame, alias_lookup: Dict[str, str],
                   options: CompareOptions) -> Optional[pd.DataFrame]:
     """Trasforma un DataFrame nelle colonne canoniche."""
-    # Se la prima riga sembra un'intestazione spostata in giù, non la gestiamo
-    # qui: ci si aspetta che l'header sia sulla prima riga.
+    # Auto-detect dell'header: se la riga 0 non ha "codice" ma qualche riga
+    # successiva è chiaramente l'header, la promuoviamo.
+    header_row = _detect_header_row(df, alias_lookup)
+    if header_row is not None:
+        new_columns = [str(v) if v is not None else "" for v in df.iloc[header_row].values]
+        df = df.iloc[header_row + 1:].reset_index(drop=True).copy()
+        df.columns = new_columns
+
     col_map = _guess_columns(df, alias_lookup)
     if "codice" not in col_map:
         return None  # foglio scartato: senza codice non possiamo confrontare
@@ -254,11 +315,54 @@ def _normalize_df(df: pd.DataFrame, alias_lookup: Dict[str, str],
 
 def _flatten_source(source: LoadedSource, merge_sheets: bool
                     ) -> List[Tuple[str, pd.DataFrame]]:
-    """Restituisce una lista di (label, df)."""
+    """Restituisce una lista di (label, df).
+
+    Quando merge_sheets=True, i fogli dello stesso file vengono combinati in
+    modo intelligente: per ogni codice, i valori vuoti in un foglio vengono
+    riempiti con quelli trovati negli altri fogli. Questo evita di perdere
+    prezzi/trasporto/installazione che sono distribuiti su fogli diversi.
+    """
     if merge_sheets or len(source.sheets) == 1:
         frames = list(source.sheets.values())
-        merged = pd.concat(frames, ignore_index=True)
-        merged = merged.drop_duplicates(subset=["codice"], keep="first")
+        if len(frames) == 1:
+            return [(source.label, frames[0].reset_index(drop=True))]
+
+        # Combina i fogli riempiendo i vuoti
+        combined: Dict[str, Dict] = {}  # codice -> record
+        order: List[str] = []
+
+        def _is_empty(v) -> bool:
+            if v is None:
+                return True
+            if isinstance(v, float) and pd.isna(v):
+                return True
+            try:
+                if pd.isna(v):
+                    return True
+            except (TypeError, ValueError):
+                pass
+            if isinstance(v, str) and v.strip() == "":
+                return True
+            return False
+
+        for df in frames:
+            for _, row in df.iterrows():
+                code = row["codice"]
+                if code not in combined:
+                    combined[code] = {f: None for f in COMPARISON_FIELDS}
+                    order.append(code)
+                for f in COMPARISON_FIELDS:
+                    if _is_empty(combined[code][f]):
+                        v = row[f]
+                        if _is_empty(v):
+                            continue
+                        combined[code][f] = v
+        rows = []
+        for code in order:
+            rec = {"codice": code}
+            rec.update(combined[code])
+            rows.append(rec)
+        merged = pd.DataFrame(rows)
         return [(source.label, merged.reset_index(drop=True))]
     return [(f"{source.label} / {sheet}", df)
             for sheet, df in source.sheets.items()]
