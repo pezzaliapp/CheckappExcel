@@ -6,6 +6,16 @@ La chiave primaria del confronto è sempre il **codice prodotto**.
 
 ---
 
+## 🌐 Versione web (nessuna installazione)
+
+👉 **[Usa l'app online](https://www.alessandropezzali.it/CheckappExcel/)**
+
+Carica i file direttamente nel browser e scarica l'Excel confrontato. Tutto avviene lato client: nessun file viene caricato su server.
+
+Se invece preferisci la versione desktop / da integrare in script, leggi le sezioni qui sotto.
+
+---
+
 ## ✨ Caratteristiche
 
 - Supporta `.xlsx`, `.xlsm`, `.xls`, `.csv`, `.tsv` (separatori `,` e `;` rilevati automaticamente).

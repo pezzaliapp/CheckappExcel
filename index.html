@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CheckappExcel — Confronto listini Excel/CSV</title>
+<meta name="description" content="Confronta due o più file Excel/CSV di listini prodotti per codice e scarica un Excel con colonne colorate.">
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+<style>
+  :root{
+    --bg:#f4f6fa; --card:#ffffff; --ink:#1a2332; --muted:#5a6776;
+    --border:#dde3eb; --accent:#1f77b4; --accent-dark:#155a88;
+    --ok:#2ca02c; --warn:#d97706; --err:#c0392b;
+    --missing:#fff2cc; --present:#c6efce; --diff:#fce4d6;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    background:var(--bg); color:var(--ink); line-height:1.5;
+  }
+  header{
+    background:linear-gradient(135deg,#1f77b4,#2ca02c); color:#fff;
+    padding:28px 20px; text-align:center;
+  }
+  header h1{margin:0; font-size:28px; font-weight:700}
+  header p{margin:6px 0 0; opacity:.95; font-size:15px}
+  main{max-width:960px; margin:0 auto; padding:24px 16px 60px}
+  .card{
+    background:var(--card); border:1px solid var(--border); border-radius:12px;
+    padding:20px; margin-bottom:18px; box-shadow:0 1px 3px rgba(0,0,0,.04);
+  }
+  .card h2{margin:0 0 12px; font-size:18px}
+  .drop{
+    border:2px dashed var(--border); border-radius:12px; padding:28px;
+    text-align:center; cursor:pointer; transition:.15s;
+    background:#fafbfd;
+  }
+  .drop:hover, .drop.hover{border-color:var(--accent); background:#eef5fb}
+  .drop strong{color:var(--accent)}
+  .drop small{display:block; color:var(--muted); margin-top:6px}
+  input[type=file]{display:none}
+  table.files{width:100%; border-collapse:collapse; margin-top:12px}
+  table.files th, table.files td{
+    padding:8px 10px; border-bottom:1px solid var(--border);
+    text-align:left; font-size:14px; vertical-align:middle;
+  }
+  table.files th{color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.04em}
+  table.files input[type=text]{
+    width:100%; padding:6px 8px; border:1px solid var(--border); border-radius:6px;
+    font:inherit;
+  }
+  .swatch{display:inline-block; width:14px; height:14px; border-radius:3px; vertical-align:middle; margin-right:8px}
+  .btn{
+    display:inline-flex; align-items:center; gap:6px; padding:9px 16px; border-radius:8px;
+    border:1px solid var(--border); background:#fff; color:var(--ink); cursor:pointer;
+    font:inherit; font-weight:500; transition:.15s;
+  }
+  .btn:hover{border-color:var(--accent); color:var(--accent)}
+  .btn.primary{background:var(--accent); color:#fff; border-color:var(--accent)}
+  .btn.primary:hover{background:var(--accent-dark); border-color:var(--accent-dark); color:#fff}
+  .btn.danger{color:var(--err); border-color:#f0cfcc}
+  .btn.danger:hover{background:#fdecea}
+  .btn:disabled{opacity:.5; cursor:not-allowed}
+  .btn-sm{padding:4px 10px; font-size:13px}
+  .options{display:flex; gap:20px; flex-wrap:wrap; margin-top:8px}
+  .options label{display:flex; align-items:center; gap:6px; font-size:14px; cursor:pointer}
+  .run-row{display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap}
+  .status{color:var(--muted); font-size:14px}
+  .status.error{color:var(--err); font-weight:500}
+  .status.ok{color:var(--ok); font-weight:500}
+  .stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-top:12px}
+  .stat{background:#f7f9fc; border:1px solid var(--border); border-radius:8px; padding:12px}
+  .stat .k{font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em}
+  .stat .v{font-size:22px; font-weight:700; margin-top:2px}
+  .legend{display:flex; flex-wrap:wrap; gap:14px; margin-top:10px; font-size:13px; color:var(--muted)}
+  .legend span{display:inline-flex; align-items:center; gap:6px}
+  .legend i{display:inline-block; width:14px; height:14px; border-radius:3px; border:1px solid var(--border)}
+  .footer{text-align:center; color:var(--muted); font-size:13px; padding:20px 10px}
+  .footer a{color:var(--accent); text-decoration:none}
+  .footer a:hover{text-decoration:underline}
+  .hidden{display:none !important}
+  details{margin-top:10px; font-size:14px}
+  details summary{cursor:pointer; color:var(--accent); font-weight:500}
+  code{background:#eef2f7; padding:1px 5px; border-radius:4px; font-size:13px}
+  .progress{height:6px; background:var(--border); border-radius:3px; overflow:hidden; margin-top:8px}
+  .progress > div{height:100%; background:var(--accent); transition:width .2s; width:0%}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📊 CheckappExcel</h1>
+  <p>Confronta due o più file Excel/CSV di listini per codice prodotto</p>
+</header>
+
+<main>
+  <div class="card">
+    <h2>1. Carica i file</h2>
+    <label for="file-input" class="drop" id="drop-zone">
+      <div>📁 <strong>Clicca qui</strong> o trascina i file Excel/CSV</div>
+      <small>Formati supportati: .xlsx, .xlsm, .xls, .csv, .tsv — minimo 2 file</small>
+    </label>
+    <input type="file" id="file-input" multiple accept=".xlsx,.xlsm,.xls,.csv,.tsv">
+
+    <table class="files" id="file-table" style="display:none">
+      <thead>
+        <tr>
+          <th style="width:30px"></th>
+          <th>File</th>
+          <th>Etichetta nel report</th>
+          <th style="width:90px; text-align:right">Azione</th>
+        </tr>
+      </thead>
+      <tbody id="file-list"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>2. Opzioni</h2>
+    <div class="options">
+      <label><input type="checkbox" id="opt-merge" checked> Unisci i fogli dello stesso file</label>
+      <label><input type="checkbox" id="opt-case"> Codici case-sensitive</label>
+    </div>
+    <details>
+      <summary>Quali colonne vengono riconosciute?</summary>
+      <div style="margin-top:8px; font-size:13px; color:var(--muted)">
+        L'app riconosce automaticamente queste intestazioni (italiano / inglese):<br>
+        • <strong>codice</strong>: <code>Codice</code>, <code>cod.</code>, <code>SKU</code>, <code>ID</code>, <code>Item Code</code><br>
+        • <strong>descrizione</strong>: <code>Descrizione</code>, <code>Desc</code>, <code>Nome</code>, <code>Description</code><br>
+        • <strong>prezzo</strong>: <code>Prezzo</code>, <code>Prezzo netto</code>, <code>Prezzo listino</code>, <code>Price</code><br>
+        • <strong>trasporto</strong>: <code>Trasporto</code>, <code>Spese trasporto</code>, <code>Spedizione</code>, <code>Shipping</code><br>
+        • <strong>installazione</strong>: <code>Installazione</code>, <code>Montaggio</code>, <code>Installation</code>, <code>Setup</code>
+      </div>
+    </details>
+  </div>
+
+  <div class="card">
+    <h2>3. Avvia il confronto</h2>
+    <div class="run-row">
+      <div class="status" id="status">In attesa di almeno 2 file…</div>
+      <button class="btn primary" id="run-btn" disabled>▶ Confronta e scarica Excel</button>
+    </div>
+    <div class="progress hidden" id="progress"><div></div></div>
+
+    <div id="results" class="hidden" style="margin-top:16px">
+      <div class="stats" id="stats"></div>
+      <div class="legend">
+        <span><i style="background:#fff2cc"></i> gialla = codice assente in quel file</span>
+        <span><i style="background:#c6efce"></i> verde = presente solo in un file</span>
+        <span><i style="background:#fce4d6"></i> arancio = prezzo diverso tra file</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    Tutto il confronto avviene nel tuo browser, nessun file viene caricato su server.<br>
+    Progetto open source — <a href="https://github.com/pezzaliapp/CheckappExcel" target="_blank" rel="noopener">github.com/pezzaliapp/CheckappExcel</a>
+  </div>
+</main>
+
+<script>
+/* ========================================================================
+   CheckappExcel — versione web (client-side)
+   ======================================================================== */
+
+const COLUMN_ALIASES = {
+  codice: ['codice','cod','cod.','cod prodotto','codice prodotto','codice articolo',
+           'articolo','sku','id','item code','code'],
+  descrizione: ['descrizione','desc','desc.','descrizione prodotto','denominazione',
+                'nome','description','prodotto','product'],
+  prezzo: ['prezzo','prezzo unitario','prezzo netto','prezzo listino','importo',
+           'costo','price','unit price'],
+  trasporto: ['trasporto','spese trasporto','spedizione','costo trasporto',
+              'shipping','transport'],
+  installazione: ['installazione','montaggio','installazione/montaggio',
+                  'costo installazione','installation','setup'],
+};
+const COMPARISON_FIELDS = ['descrizione','prezzo','trasporto','installazione'];
+const FILE_COLORS = ['1F77B4','2CA02C','FF7F0E','9467BD','17BECF','BCBD22','8C564B','E377C2'];
+const COLOR_MISSING      = 'FFF2CC';
+const COLOR_PRESENT_ONLY = 'C6EFCE';
+const COLOR_PRICE_DIFF   = 'FCE4D6';
+const COLOR_KEY_FILL     = 'D9E1F2';
+const COLOR_STATUS_ALL   = 'C6EFCE';
+const COLOR_STATUS_PART  = 'FFF2CC';
+const COLOR_STATUS_UNIQ  = 'F8CBAD';
+
+// -------- lookup alias
+const ALIAS_LOOKUP = (() => {
+  const map = {};
+  for (const [canon, list] of Object.entries(COLUMN_ALIASES)) {
+    for (const v of list) map[norm(v)] = canon;
+    map[norm(canon)] = canon;
+  }
+  return map;
+})();
+
+function norm(s){ return String(s ?? '').trim().toLowerCase().replace(/\s+/g,' '); }
+
+function normalizeCode(v, {caseSensitive, strip=true}){
+  if (v === null || v === undefined) return null;
+  let s = String(v);
+  if (strip) s = s.trim();
+  if (!s) return null;
+  // gestisci numerici tipo 12345.0 -> "12345"
+  if (/^-?\d+(\.\d+)?$/.test(s.replace(',', '.'))) {
+    const f = parseFloat(s.replace(',', '.'));
+    if (Number.isInteger(f)) s = String(f);
+  }
+  if (!caseSensitive) s = s.toUpperCase();
+  return s;
+}
+
+function toNumber(v){
+  if (v === null || v === undefined || v === '') return null;
+  if (typeof v === 'number') return isFinite(v) ? v : null;
+  let s = String(v).trim().replace(/[€$\s]/g,'');
+  // se c'è sia punto che virgola, il punto è separatore migliaia
+  if (s.includes(',') && s.includes('.')) s = s.replace(/\./g,'');
+  s = s.replace(',', '.');
+  const n = parseFloat(s);
+  return isFinite(n) ? n : null;
+}
+
+// -------- lettura file
+async function readFile(file){
+  const buf = await file.arrayBuffer();
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  const wb = XLSX.read(buf, {type:'array', cellDates:false, raw:false});
+  const sheets = {};
+  for (const name of wb.SheetNames){
+    const json = XLSX.utils.sheet_to_json(wb.Sheets[name], {defval:null, raw:true});
+    if (json && json.length) sheets[name] = json;
+  }
+  return {name:file.name, ext, sheets};
+}
+
+function guessColumns(rows){
+  if (!rows || !rows.length) return {};
+  const cols = Object.keys(rows[0]);
+  const map = {};
+  for (const col of cols){
+    const canon = ALIAS_LOOKUP[norm(col)];
+    if (canon && !map[canon]) map[canon] = col;
+  }
+  return map;
+}
+
+function normalizeSheet(rows, opts){
+  const colmap = guessColumns(rows);
+  if (!colmap.codice) return null;
+  const seen = new Set();
+  const out = [];
+  for (const r of rows){
+    const code = normalizeCode(r[colmap.codice], opts);
+    if (!code) continue;
+    if (seen.has(code)) continue;
+    seen.add(code);
+    const rec = {codice: code};
+    for (const f of COMPARISON_FIELDS){
+      rec[f] = colmap[f] !== undefined ? r[colmap[f]] : null;
+    }
+    out.push(rec);
+  }
+  return out;
+}
+
+function flattenSource(source, label, opts){
+  const result = [];
+  const sheetEntries = Object.entries(source.sheets)
+    .map(([name, rows]) => [name, normalizeSheet(rows, opts)])
+    .filter(([_, n]) => n && n.length);
+  if (!sheetEntries.length) return result;
+
+  if (opts.mergeSheets || sheetEntries.length === 1){
+    const merged = [];
+    const seen = new Set();
+    for (const [,rows] of sheetEntries){
+      for (const r of rows){
+        if (seen.has(r.codice)) continue;
+        seen.add(r.codice);
+        merged.push(r);
+      }
+    }
+    result.push({label, rows: merged});
+  } else {
+    for (const [name, rows] of sheetEntries){
+      result.push({label:`${label} / ${name}`, rows});
+    }
+  }
+  return result;
+}
+
+// -------- confronto
+function compare(flatList){
+  const labels = flatList.map(f => f.label);
+  const codes = [];
+  const seen = new Set();
+  for (const {rows} of flatList){
+    for (const r of rows){
+      if (!seen.has(r.codice)){ seen.add(r.codice); codes.push(r.codice); }
+    }
+  }
+  // index per label
+  const indexes = flatList.map(({rows}) => {
+    const m = new Map();
+    for (const r of rows) m.set(r.codice, r);
+    return m;
+  });
+
+  const wide = codes.map(code => {
+    const row = {codice: code, _present: []};
+    flatList.forEach(({label}, i) => {
+      const rec = indexes[i].get(code);
+      row._present.push(!!rec);
+      for (const f of COMPARISON_FIELDS){
+        row[`${label} | ${f}`] = rec ? rec[f] : null;
+      }
+    });
+    const nPresent = row._present.filter(Boolean).length;
+    if (nPresent === labels.length) row.stato = 'In tutti';
+    else if (nPresent === 1){
+      const idx = row._present.indexOf(true);
+      row.stato = `Solo in ${labels[idx]}`;
+    } else {
+      const missing = labels.filter((_,i)=>!row._present[i]);
+      row.stato = `Manca in: ${missing.join(', ')}`;
+    }
+    return row;
+  });
+
+  const stats = {
+    totale: wide.length,
+    inTutti: wide.filter(r => r.stato === 'In tutti').length,
+    soloUno: wide.filter(r => r.stato.startsWith('Solo in')).length,
+    parziali: wide.filter(r => r.stato.startsWith('Manca in')).length,
+    perFile: {},
+  };
+  labels.forEach((l,i) => stats.perFile[l] = wide.filter(r => r._present[i]).length);
+
+  return {labels, table: wide, stats};
+}
+
+// -------- export Excel con ExcelJS
+async function exportExcel(result){
+  const {labels, table, stats} = result;
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'CheckappExcel';
+  wb.created = new Date();
+
+  // foglio Riepilogo
+  const ws1 = wb.addWorksheet('Riepilogo');
+  ws1.getCell('A1').value = 'CheckappExcel — Riepilogo confronto';
+  ws1.getCell('A1').font = {bold:true, size:14};
+  const summaryRows = [
+    ['Totale codici distinti', stats.totale],
+    ['Presenti in tutti i file', stats.inTutti],
+    ['Presenti solo in uno', stats.soloUno],
+    ['Parzialmente presenti', stats.parziali],
+  ];
+  summaryRows.forEach((r, i) => {
+    ws1.getCell(3+i, 1).value = r[0];
+    ws1.getCell(3+i, 1).font = {bold:true};
+    ws1.getCell(3+i, 2).value = r[1];
+  });
+  let r = 3 + summaryRows.length + 1;
+  ws1.getCell(r,1).value = 'Conteggio per file'; ws1.getCell(r,1).font = {bold:true}; r++;
+  ws1.getCell(r,1).value = 'File'; ws1.getCell(r,1).font = {bold:true};
+  ws1.getCell(r,2).value = 'N. codici'; ws1.getCell(r,2).font = {bold:true}; r++;
+  labels.forEach((label, i) => {
+    const color = FILE_COLORS[i % FILE_COLORS.length];
+    const c = ws1.getCell(r, 1);
+    c.value = label;
+    c.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FF'+color}};
+    c.font = {bold:true, color:{argb:'FFFFFFFF'}};
+    ws1.getCell(r, 2).value = stats.perFile[label];
+    r++;
+  });
+  r += 1;
+  ws1.getCell(r,1).value = 'Legenda'; ws1.getCell(r,1).font = {bold:true}; r++;
+  const legend = [
+    ['Cella gialla = codice assente in quel file', COLOR_MISSING],
+    ['Cella verde = codice presente solo in un file', COLOR_PRESENT_ONLY],
+    ['Cella arancio = prezzo diverso tra i file', COLOR_PRICE_DIFF],
+  ];
+  for (const [txt, col] of legend){
+    const c = ws1.getCell(r, 1);
+    c.value = txt;
+    c.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FF'+col}};
+    r++;
+  }
+  ws1.getColumn(1).width = 48;
+  ws1.getColumn(2).width = 20;
+
+  // foglio Confronto
+  const ws2 = wb.addWorksheet('Confronto');
+  // riga 1: titoli per file (merged)
+  ws2.getCell(1,1).value = 'Codice';
+  ws2.getCell(1,2).value = 'Stato';
+  let col = 3;
+  labels.forEach((label, i) => {
+    const color = FILE_COLORS[i % FILE_COLORS.length];
+    const start = col, end = col + COMPARISON_FIELDS.length - 1;
+    ws2.mergeCells(1, start, 1, end);
+    const c = ws2.getCell(1, start);
+    c.value = label;
+    c.font = {bold:true, color:{argb:'FFFFFFFF'}, size:12};
+    c.alignment = {horizontal:'center', vertical:'middle'};
+    c.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FF'+color}};
+    for (let k=start; k<=end; k++){
+      ws2.getCell(1,k).fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FF'+color}};
+    }
+    col = end + 1;
+  });
+
+  // riga 2: nomi campi
+  const headers2 = ['Codice','Stato'];
+  labels.forEach(() => headers2.push('Descrizione','Prezzo','Trasporto','Installazione'));
+  headers2.forEach((h, i) => {
+    const c = ws2.getCell(2, i+1);
+    c.value = h;
+    c.font = {bold:true};
+    c.alignment = {horizontal:'center', vertical:'middle', wrapText:true};
+    c.border = {top:{style:'thin',color:{argb:'FFB7B7B7'}}, bottom:{style:'thin',color:{argb:'FFB7B7B7'}},
+                left:{style:'thin',color:{argb:'FFB7B7B7'}}, right:{style:'thin',color:{argb:'FFB7B7B7'}}};
+    if (i < 2){
+      c.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FF'+COLOR_KEY_FILL}};
+    } else {
+      const block = Math.floor((i - 2) / COMPARISON_FIELDS.length);
+      const color = FILE_COLORS[block % FILE_COLORS.length];
+      c.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FF'+color}};
+      c.font = {bold:true, color:{argb:'FFFFFFFF'}};
+    }
+  });
+
+  // dati
+  const border = {top:{style:'thin',color:{argb:'FFB7B7B7'}}, bottom:{style:'thin',color:{argb:'FFB7B7B7'}},
+                  left:{style:'thin',color:{argb:'FFB7B7B7'}}, right:{style:'thin',color:{argb:'FFB7B7B7'}}};
+  table.forEach((row, idx) => {
+    const rowNum = 3 + idx;
+    // codice
+    const cCode = ws2.getCell(rowNum, 1);
+    cCode.value = row.codice;
+    cCode.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FF'+COLOR_KEY_FILL}};
+    // stato
+    const cStato = ws2.getCell(rowNum, 2);
+    cStato.value = row.stato;
+    if (row.stato === 'In tutti')
+      cStato.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FF'+COLOR_STATUS_ALL}};
+    else if (row.stato.startsWith('Solo in'))
+      cStato.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FF'+COLOR_STATUS_UNIQ}};
+    else
+      cStato.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FF'+COLOR_STATUS_PART}};
+
+    // calcola se i prezzi divergono
+    const priceSet = new Set();
+    labels.forEach(l => {
+      const n = toNumber(row[`${l} | prezzo`]);
+      if (n !== null) priceSet.add(Math.round(n*100)/100);
+    });
+    const priceDiff = priceSet.size > 1;
+    const nPresent = row._present.filter(Boolean).length;
+
+    let colCursor = 3;
+    labels.forEach((label, iLbl) => {
+      const isPresent = row._present[iLbl];
+      for (const field of COMPARISON_FIELDS){
+        const cell = ws2.getCell(rowNum, colCursor);
+        let v = row[`${label} | ${field}`];
+        if (v === null || v === undefined || (typeof v === 'number' && isNaN(v))) v = null;
+        if (['prezzo','trasporto','installazione'].includes(field)){
+          const n = toNumber(v);
+          if (n !== null){
+            cell.value = n;
+            cell.numFmt = '#,##0.00\\ "€"';
+          } else if (v !== null){
+            cell.value = v;
+          }
+        } else {
+          if (v !== null) cell.value = v;
+        }
+        cell.border = border;
+        cell.alignment = {vertical:'middle', wrapText:true};
+        if (!isPresent)
+          cell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FF'+COLOR_MISSING}};
+        else if (nPresent === 1)
+          cell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FF'+COLOR_PRESENT_ONLY}};
+        else if (field === 'prezzo' && priceDiff)
+          cell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FF'+COLOR_PRICE_DIFF}};
+        colCursor++;
+      }
+    });
+  });
+
+  ws2.getColumn(1).width = 18;
+  ws2.getColumn(2).width = 28;
+  labels.forEach((_, iLbl) => {
+    const base = 3 + iLbl * COMPARISON_FIELDS.length;
+    ws2.getColumn(base).width = 40;
+    ws2.getColumn(base+1).width = 14;
+    ws2.getColumn(base+2).width = 14;
+    ws2.getColumn(base+3).width = 16;
+  });
+  ws2.views = [{state:'frozen', xSplit:2, ySplit:2}];
+  const lastCol = 2 + labels.length * COMPARISON_FIELDS.length;
+  ws2.autoFilter = {from:{row:2,column:1}, to:{row:ws2.rowCount, column:lastCol}};
+
+  // foglio Mancanti
+  const ws3 = wb.addWorksheet('Mancanti');
+  const missing = table.filter(r => r.stato !== 'In tutti');
+  const hdrs = ['Codice','Stato', ...labels.map(l => `In ${l}?`)];
+  hdrs.forEach((h,i) => {
+    const c = ws3.getCell(1, i+1);
+    c.value = h;
+    c.font = {bold:true, color:{argb:'FFFFFFFF'}};
+    c.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FF404040'}};
+    c.alignment = {horizontal:'center'};
+  });
+  missing.forEach((row, i) => {
+    const rn = i + 2;
+    const cCode = ws3.getCell(rn, 1);
+    cCode.value = row.codice;
+    cCode.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FF'+COLOR_KEY_FILL}};
+    const cSt = ws3.getCell(rn, 2);
+    cSt.value = row.stato;
+    cSt.fill = {type:'pattern', pattern:'solid',
+                fgColor:{argb:'FF' + (row.stato.startsWith('Solo in') ? COLOR_STATUS_UNIQ : COLOR_STATUS_PART)}};
+    labels.forEach((_, iLbl) => {
+      const has = row._present[iLbl];
+      const c = ws3.getCell(rn, 3 + iLbl);
+      c.value = has ? 'Sì' : 'No';
+      c.alignment = {horizontal:'center'};
+      c.fill = {type:'pattern', pattern:'solid',
+                fgColor:{argb:'FF' + (has ? COLOR_STATUS_ALL : COLOR_MISSING)}};
+    });
+  });
+  ws3.getColumn(1).width = 18;
+  ws3.getColumn(2).width = 32;
+  for (let i=0; i<labels.length; i++) ws3.getColumn(3+i).width = 22;
+  ws3.views = [{state:'frozen', ySplit:1}];
+  if (missing.length){
+    ws3.autoFilter = {from:{row:1,column:1}, to:{row:ws3.rowCount, column:2+labels.length}};
+  }
+
+  // download
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const ts = new Date().toISOString().replace(/[:.]/g,'-').slice(0,16);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `confronto_${ts}.xlsx`;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+}
+
+/* ========================================================================
+   UI
+   ======================================================================== */
+const FILES = []; // {file, label, color}
+const fileInput = document.getElementById('file-input');
+const fileList  = document.getElementById('file-list');
+const fileTable = document.getElementById('file-table');
+const dropZone  = document.getElementById('drop-zone');
+const runBtn    = document.getElementById('run-btn');
+const statusEl  = document.getElementById('status');
+const progressEl= document.getElementById('progress');
+const resultsEl = document.getElementById('results');
+const statsEl   = document.getElementById('stats');
+
+fileInput.addEventListener('change', e => addFiles(Array.from(e.target.files)));
+['dragenter','dragover'].forEach(ev => dropZone.addEventListener(ev, e => {e.preventDefault(); dropZone.classList.add('hover');}));
+['dragleave','drop'].forEach(ev => dropZone.addEventListener(ev, e => {e.preventDefault(); dropZone.classList.remove('hover');}));
+dropZone.addEventListener('drop', e => {
+  const files = Array.from(e.dataTransfer.files).filter(f => /\.(xlsx|xlsm|xls|csv|tsv)$/i.test(f.name));
+  addFiles(files);
+});
+
+function addFiles(list){
+  for (const f of list){
+    if (FILES.some(x => x.file.name === f.name && x.file.size === f.size)) continue;
+    FILES.push({
+      file: f,
+      label: f.name.replace(/\.(xlsx|xlsm|xls|csv|tsv)$/i,''),
+      color: FILE_COLORS[FILES.length % FILE_COLORS.length],
+    });
+  }
+  render();
+  fileInput.value = '';
+}
+
+function render(){
+  fileList.innerHTML = '';
+  fileTable.style.display = FILES.length ? '' : 'none';
+  FILES.forEach((entry, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><span class="swatch" style="background:#${entry.color}"></span></td>
+      <td>${escapeHtml(entry.file.name)}<br><small style="color:var(--muted)">${formatSize(entry.file.size)}</small></td>
+      <td><input type="text" value="${escapeHtml(entry.label)}" data-i="${i}"></td>
+      <td style="text-align:right"><button class="btn btn-sm danger" data-rm="${i}">Rimuovi</button></td>
+    `;
+    fileList.appendChild(tr);
+  });
+  fileList.querySelectorAll('input[type=text]').forEach(inp => {
+    inp.addEventListener('input', e => FILES[+e.target.dataset.i].label = e.target.value);
+  });
+  fileList.querySelectorAll('button[data-rm]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      FILES.splice(+e.target.dataset.rm, 1);
+      // ricolora
+      FILES.forEach((f, i) => f.color = FILE_COLORS[i % FILE_COLORS.length]);
+      render();
+    });
+  });
+  updateRunState();
+}
+
+function updateRunState(){
+  if (FILES.length < 2){
+    runBtn.disabled = true;
+    statusEl.className = 'status';
+    statusEl.textContent = `In attesa di almeno 2 file… (${FILES.length} caricato/i)`;
+  } else {
+    runBtn.disabled = false;
+    statusEl.className = 'status';
+    statusEl.textContent = `Pronto: ${FILES.length} file in confronto.`;
+  }
+}
+
+runBtn.addEventListener('click', runCompare);
+
+async function runCompare(){
+  runBtn.disabled = true;
+  progressEl.classList.remove('hidden');
+  const bar = progressEl.firstElementChild;
+  bar.style.width = '10%';
+  resultsEl.classList.add('hidden');
+  statusEl.className = 'status';
+  statusEl.textContent = 'Lettura dei file…';
+
+  try {
+    const opts = {
+      caseSensitive: document.getElementById('opt-case').checked,
+      mergeSheets : document.getElementById('opt-merge').checked,
+    };
+
+    const flat = [];
+    for (let i = 0; i < FILES.length; i++){
+      const entry = FILES[i];
+      statusEl.textContent = `Lettura: ${entry.file.name}…`;
+      const src = await readFile(entry.file);
+      flat.push(...flattenSource(src, entry.label || entry.file.name, opts));
+      bar.style.width = `${10 + 60 * (i+1) / FILES.length}%`;
+    }
+    if (flat.length < 2){
+      throw new Error('Non sono state trovate colonne "codice" valide in almeno 2 file/fogli. Controlla le intestazioni.');
+    }
+
+    statusEl.textContent = 'Confronto…';
+    bar.style.width = '80%';
+    const result = compare(flat);
+
+    statusEl.textContent = 'Generazione Excel…';
+    bar.style.width = '92%';
+    await exportExcel(result);
+
+    bar.style.width = '100%';
+    statusEl.className = 'status ok';
+    statusEl.textContent = `✓ Completato. File scaricato. ${result.stats.totale} codici totali.`;
+    showStats(result.stats, result.labels);
+  } catch (err) {
+    console.error(err);
+    statusEl.className = 'status error';
+    statusEl.textContent = `Errore: ${err.message || err}`;
+  } finally {
+    runBtn.disabled = FILES.length < 2;
+    setTimeout(() => {
+      progressEl.classList.add('hidden');
+      bar.style.width = '0%';
+    }, 1200);
+  }
+}
+
+function showStats(stats, labels){
+  resultsEl.classList.remove('hidden');
+  const cards = [
+    ['Codici totali',   stats.totale],
+    ['In tutti i file', stats.inTutti],
+    ['Parziali',        stats.parziali],
+    ['Solo in uno',     stats.soloUno],
+  ];
+  let html = '';
+  for (const [k,v] of cards) html += `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+  labels.forEach((l,i) => {
+    const color = FILE_COLORS[i % FILE_COLORS.length];
+    html += `<div class="stat" style="border-left:4px solid #${color}"><div class="k">${escapeHtml(l)}</div><div class="v">${stats.perFile[l]}</div></div>`;
+  });
+  statsEl.innerHTML = html;
+}
+
+function escapeHtml(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]); }
+function formatSize(n){
+  if (n < 1024) return n + ' B';
+  if (n < 1024*1024) return (n/1024).toFixed(1) + ' KB';
+  return (n/1024/1024).toFixed(1) + ' MB';
+}
+</script>
+</body>
+</html>
