@@ -4,7 +4,33 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CheckappExcel — Confronto listini Excel/CSV</title>
-<meta name="description" content="Confronta due o più file Excel/CSV di listini prodotti per codice e scarica un Excel con colonne colorate.">
+<meta name="description" content="Confronta due o più file Excel/CSV di listini prodotti per codice e scarica un Excel con colonne colorate. Gratis, open source, funziona nel browser.">
+<meta name="author" content="Alessandro Pezzali">
+<meta name="theme-color" content="#1F77B4">
+
+<!-- Favicon -->
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<link rel="alternate icon" type="image/png" href="assets/apple-touch-icon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png">
+
+<!-- Open Graph (Facebook, WhatsApp, LinkedIn) -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="CheckappExcel">
+<meta property="og:title" content="CheckappExcel — Confronto listini Excel/CSV">
+<meta property="og:description" content="Confronta due o più file Excel/CSV di listini prodotti per codice e scarica un Excel con colonne colorate. Gratis, funziona nel browser.">
+<meta property="og:url" content="https://www.alessandropezzali.it/CheckappExcel/">
+<meta property="og:image" content="https://www.alessandropezzali.it/CheckappExcel/assets/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="CheckappExcel - Confronta listini Excel/CSV">
+<meta property="og:locale" content="it_IT">
+
+<!-- Twitter Card -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="CheckappExcel — Confronto listini Excel/CSV">
+<meta name="twitter:description" content="Confronta due o più file Excel/CSV di listini per codice prodotto e scarica un Excel con colonne colorate. Gratis, nel browser.">
+<meta name="twitter:image" content="https://www.alessandropezzali.it/CheckappExcel/assets/og-image.png">
+
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 <style>
@@ -78,6 +104,11 @@
   .btn.danger{color:var(--err); border-color:#f0cfcc}
   .btn.danger:hover{background:#fdecea}
   .btn:disabled{opacity:.5; cursor:not-allowed}
+  a.btn{text-decoration:none}
+  a.btn.primary{color:#fff}
+  a.btn.primary:hover{color:#fff}
+  .download-card{background:linear-gradient(135deg, #f7f9fc 0%, #eef5fb 100%)}
+  .download-card h2{display:flex; align-items:center; gap:8px}
   .btn-sm{padding:4px 10px; font-size:13px}
   .options{display:flex; gap:20px; flex-wrap:wrap; margin-top:8px}
   .options label{display:flex; align-items:center; gap:6px; font-size:14px; cursor:pointer}
@@ -168,6 +199,23 @@
         <span><i style="background:#c6efce"></i> verde = presente solo in un file</span>
         <span><i style="background:#fce4d6"></i> arancio = prezzo diverso tra file</span>
       </div>
+    </div>
+  </div>
+
+  <div class="card download-card">
+    <h2>💻 Preferisci la versione desktop?</h2>
+    <p style="margin:0 0 14px; color:var(--muted); font-size:14px">
+      Se lavori spesso con molti file, la versione Python offre CLI + interfaccia Tkinter,
+      gira offline, e può essere integrata in script o automazioni.
+      Richiede Python 3.9+.
+    </p>
+    <div style="display:flex; gap:10px; flex-wrap:wrap">
+      <a class="btn primary" href="https://github.com/pezzaliapp/CheckappExcel/archive/refs/heads/main.zip">
+        ⬇ Scarica ZIP progetto
+      </a>
+      <a class="btn" href="https://github.com/pezzaliapp/CheckappExcel" target="_blank" rel="noopener">
+        📖 Vedi su GitHub
+      </a>
     </div>
   </div>
 
