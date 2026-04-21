@@ -1,8 +1,6 @@
 # CheckappExcel
 
-<p align="center">
-  <img src="assets/og-image.png" alt="CheckappExcel" width="600">
-</p>
+![CheckappExcel — Confronta listini Excel/CSV per codice prodotto](https://raw.githubusercontent.com/pezzaliapp/CheckappExcel/main/assets/og-image.png)
 
 Applicazione Python per confrontare **due o più file Excel/CSV** di listini prodotti — anche con **più fogli** ciascuno — e produrre un **unico file Excel** con **colonne colorate per file**, evidenziando prodotti presenti/mancanti, differenze di prezzo, trasporto e installazione.
 
