@@ -7,7 +7,7 @@
  *     cache viene ripulito automaticamente
  */
 
-const CACHE_VERSION = "v1.0.0";
+const CACHE_VERSION = "v1.1.0";
 const CACHE_STATIC  = `checkapp-static-${CACHE_VERSION}`;
 const CACHE_CDN     = `checkapp-cdn-${CACHE_VERSION}`;
 

@@ -184,6 +184,12 @@
     <div class="options">
       <label><input type="checkbox" id="opt-merge" checked> Unisci i fogli dello stesso file</label>
       <label><input type="checkbox" id="opt-case"> Codici case-sensitive</label>
+      <label style="display:flex; align-items:center; gap:6px">
+        Evidenzia variazioni prezzo >
+        <input type="number" id="opt-threshold" value="5" min="0" max="500" step="1"
+               style="width:64px; padding:5px 8px; border:1px solid var(--border); border-radius:6px; font:inherit">
+        %
+      </label>
     </div>
     <details>
       <summary>Quali colonne vengono riconosciute?</summary>
@@ -211,7 +217,8 @@
       <div class="legend">
         <span><i style="background:#fff2cc"></i> gialla = codice assente in quel file</span>
         <span><i style="background:#c6efce"></i> verde = presente solo in un file</span>
-        <span><i style="background:#fce4d6"></i> arancio = prezzo diverso tra file</span>
+        <span><i style="background:#fce4d6"></i> arancio = prezzo diverso entro soglia</span>
+        <span><i style="background:#f08080"></i> rossa = variazione prezzo oltre soglia</span>
       </div>
     </div>
   </div>
@@ -273,6 +280,7 @@ const FILE_COLORS = ['1F77B4','2CA02C','FF7F0E','9467BD','17BECF','BCBD22','8C56
 const COLOR_MISSING      = 'FFF2CC';
 const COLOR_PRESENT_ONLY = 'C6EFCE';
 const COLOR_PRICE_DIFF   = 'FCE4D6';
+const COLOR_PRICE_VAR_HIGH = 'F08080';
 const COLOR_KEY_FILL     = 'D9E1F2';
 const COLOR_STATUS_ALL   = 'C6EFCE';
 const COLOR_STATUS_PART  = 'FFF2CC';
@@ -499,6 +507,7 @@ function compare(flatList){
     inTutti: wide.filter(r => r.stato === 'In tutti').length,
     soloUno: wide.filter(r => r.stato.startsWith('Solo in')).length,
     parziali: wide.filter(r => r.stato.startsWith('Manca in')).length,
+    variazioniAlte: 0,  // popolato in runCompare usando la soglia
     perFile: {},
   };
   labels.forEach((l,i) => stats.perFile[l] = wide.filter(r => r._present[i]).length);
@@ -506,9 +515,29 @@ function compare(flatList){
   return {labels, table: wide, stats};
 }
 
+function countHighVariations(result, threshold){
+  const {labels, table} = result;
+  let n = 0;
+  table.forEach(row => {
+    const prices = [];
+    labels.forEach(l => {
+      const v = toNumber(row[`${l} | prezzo`]);
+      if (v !== null) prices.push(Math.round(v*100)/100);
+    });
+    if (new Set(prices).size <= 1) return;
+    const pmin = Math.min(...prices), pmax = Math.max(...prices);
+    if (pmin <= 0) { n++; return; }
+    const variation = ((pmax - pmin) / pmin) * 100;
+    if (variation > threshold) n++;
+  });
+  return n;
+}
+
 // -------- export Excel con ExcelJS
 async function exportExcel(result){
   const {labels, table, stats} = result;
+  const threshold = (typeof result.threshold === 'number' && result.threshold >= 0)
+    ? result.threshold : 5;
   const wb = new ExcelJS.Workbook();
   wb.creator = 'CheckappExcel';
   wb.created = new Date();
@@ -546,7 +575,8 @@ async function exportExcel(result){
   const legend = [
     ['Cella gialla = codice assente in quel file', COLOR_MISSING],
     ['Cella verde = codice presente solo in un file', COLOR_PRESENT_ONLY],
-    ['Cella arancio = prezzo diverso tra i file', COLOR_PRICE_DIFF],
+    ['Cella arancio = prezzo diverso (entro la soglia)', COLOR_PRICE_DIFF],
+    [`Cella rossa = variazione prezzo oltre ${threshold}%`, COLOR_PRICE_VAR_HIGH],
   ];
   for (const [txt, col] of legend){
     const c = ws1.getCell(r, 1);
@@ -617,13 +647,18 @@ async function exportExcel(result){
     else
       cStato.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FF'+COLOR_STATUS_PART}};
 
-    // calcola se i prezzi divergono
-    const priceSet = new Set();
+    // classifica la variazione prezzo: 'same' | 'diff' | 'high'
+    const prices = [];
     labels.forEach(l => {
       const n = toNumber(row[`${l} | prezzo`]);
-      if (n !== null) priceSet.add(Math.round(n*100)/100);
+      if (n !== null) prices.push(Math.round(n*100)/100);
     });
-    const priceDiff = priceSet.size > 1;
+    let priceFlag = 'same';
+    if (new Set(prices).size > 1){
+      const pmin = Math.min(...prices), pmax = Math.max(...prices);
+      const variation = pmin > 0 ? ((pmax - pmin) / pmin) * 100 : Infinity;
+      priceFlag = variation > threshold ? 'high' : 'diff';
+    }
     const nPresent = row._present.filter(Boolean).length;
 
     let colCursor = 3;
@@ -650,8 +685,14 @@ async function exportExcel(result){
           cell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FF'+COLOR_MISSING}};
         else if (nPresent === 1)
           cell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FF'+COLOR_PRESENT_ONLY}};
-        else if (field === 'prezzo' && priceDiff)
-          cell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FF'+COLOR_PRICE_DIFF}};
+        else if (field === 'prezzo'){
+          if (priceFlag === 'high'){
+            cell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FF'+COLOR_PRICE_VAR_HIGH}};
+            cell.font = {bold:true, color:{argb:'FF7F0000'}};
+          } else if (priceFlag === 'diff'){
+            cell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FF'+COLOR_PRICE_DIFF}};
+          }
+        }
         colCursor++;
       }
     });
@@ -815,6 +856,7 @@ async function runCompare(){
     const opts = {
       caseSensitive: document.getElementById('opt-case').checked,
       mergeSheets : document.getElementById('opt-merge').checked,
+      threshold   : parseFloat(document.getElementById('opt-threshold').value) || 0,
     };
 
     const flat = [];
@@ -832,6 +874,8 @@ async function runCompare(){
     statusEl.textContent = 'Confronto…';
     bar.style.width = '80%';
     const result = compare(flat);
+    result.threshold = opts.threshold;
+    result.stats.variazioniAlte = countHighVariations(result, opts.threshold);
 
     statusEl.textContent = 'Generazione Excel…';
     bar.style.width = '92%';
@@ -864,6 +908,9 @@ function showStats(stats, labels){
   ];
   let html = '';
   for (const [k,v] of cards) html += `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+  if (typeof stats.variazioniAlte === 'number'){
+    html += `<div class="stat" style="border-left:4px solid #e74c3c"><div class="k">Variazioni rilevanti</div><div class="v" style="color:#c0392b">${stats.variazioniAlte}</div></div>`;
+  }
   labels.forEach((l,i) => {
     const color = FILE_COLORS[i % FILE_COLORS.length];
     html += `<div class="stat" style="border-left:4px solid #${color}"><div class="k">${escapeHtml(l)}</div><div class="v">${stats.perFile[l]}</div></div>`;

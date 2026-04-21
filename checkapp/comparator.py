@@ -74,6 +74,7 @@ FILE_HEADER_COLORS: List[str] = [
 COLOR_MISSING = "FFF2CC"        # giallo chiaro - prodotto assente in questo file
 COLOR_PRESENT_ONLY = "C6EFCE"   # verde chiaro - presente solo qui
 COLOR_PRICE_DIFF = "FCE4D6"     # arancio chiaro - prezzo diverso fra file
+COLOR_PRICE_VAR_HIGH = "F08080" # rosso - variazione prezzo sopra soglia
 COLOR_HEADER_TEXT = "FFFFFF"    # testo bianco sulle intestazioni colorate
 COLOR_KEY_FILL = "D9E1F2"       # azzurro tenue per colonna Codice
 COLOR_STATUS_ALL = "C6EFCE"     # verde - in tutti i file
@@ -102,6 +103,7 @@ class CompareOptions:
     case_sensitive_codes: bool = False
     strip_codes: bool = True
     merge_sheets: bool = True           # se True, unisce tutti i fogli di un file in un'unica tabella
+    price_variation_threshold: float = 5.0  # % oltre la quale una variazione prezzo è "significativa"
     column_aliases: Dict[str, List[str]] = field(default_factory=lambda: {
         k: list(v) for k, v in DEFAULT_COLUMN_ALIASES.items()
     })
@@ -481,6 +483,7 @@ def _write_summary_sheet(ws: Worksheet, result: Dict) -> None:
     ws.title = "Riepilogo"
     stats = result["stats"]
     labels = result["labels"]
+    options: CompareOptions = result["options"]
 
     ws["A1"] = "CheckappExcel - Riepilogo confronto"
     ws["A1"].font = Font(bold=True, size=14)
@@ -518,7 +521,9 @@ def _write_summary_sheet(ws: Worksheet, result: Dict) -> None:
     legend = [
         ("Cella gialla = codice assente in quel file", COLOR_MISSING),
         ("Cella verde = codice presente solo in quel file", COLOR_PRESENT_ONLY),
-        ("Cella arancio = prezzo diverso rispetto agli altri file", COLOR_PRICE_DIFF),
+        ("Cella arancio = prezzo diverso (entro la soglia)", COLOR_PRICE_DIFF),
+        (f"Cella rossa = variazione prezzo oltre il {options.price_variation_threshold:.0f}%",
+         COLOR_PRICE_VAR_HIGH),
     ]
     for text, color in legend:
         c = ws.cell(row=r, column=1, value=text)
@@ -530,9 +535,14 @@ def _write_summary_sheet(ws: Worksheet, result: Dict) -> None:
 
 
 def _compute_price_diff_flags(table: pd.DataFrame,
-                              labels: List[str]) -> Dict[int, bool]:
-    """Per ogni riga (indice 0-based), True se i prezzi numerici divergono."""
-    flags: Dict[int, bool] = {}
+                              labels: List[str],
+                              threshold_pct: float = 5.0) -> Dict[int, str]:
+    """Per ogni riga (indice 0-based), restituisce:
+       - "same"   : prezzi uguali (o al più uno solo)
+       - "diff"   : prezzi diversi ma entro la soglia
+       - "high"   : variazione max/min > threshold_pct%
+    """
+    flags: Dict[int, str] = {}
     price_cols = [f"{l} | prezzo" for l in labels]
     for i, row in table.iterrows():
         nums = []
@@ -540,7 +550,15 @@ def _compute_price_diff_flags(table: pd.DataFrame,
             n = _to_number(row.get(c))
             if n is not None:
                 nums.append(round(n, 2))
-        flags[i] = len(set(nums)) > 1
+        if len(set(nums)) <= 1:
+            flags[i] = "same"
+            continue
+        pmin, pmax = min(nums), max(nums)
+        if pmin > 0:
+            variation = (pmax - pmin) / pmin * 100
+        else:
+            variation = float("inf") if pmax > 0 else 0
+        flags[i] = "high" if variation > threshold_pct else "diff"
     return flags
 
 
@@ -595,7 +613,10 @@ def _write_compare_sheet(ws: Worksheet, result: Dict) -> None:
             c.font = Font(bold=True, color=COLOR_HEADER_TEXT)
 
     # --- Dati ---
-    price_diff_flags = _compute_price_diff_flags(table, labels)
+    options_opts: CompareOptions = result["options"]
+    price_diff_flags = _compute_price_diff_flags(
+        table, labels, threshold_pct=options_opts.price_variation_threshold
+    )
     n_labels = len(labels)
     data_start_row = 3
 
@@ -642,8 +663,13 @@ def _write_compare_sheet(ws: Worksheet, result: Dict) -> None:
                     cell.fill = PatternFill("solid", fgColor=COLOR_MISSING)
                 elif n_present == 1:
                     cell.fill = PatternFill("solid", fgColor=COLOR_PRESENT_ONLY)
-                elif field_name == "prezzo" and price_diff_flags.get(i, False):
-                    cell.fill = PatternFill("solid", fgColor=COLOR_PRICE_DIFF)
+                elif field_name == "prezzo":
+                    flag = price_diff_flags.get(i, "same")
+                    if flag == "high":
+                        cell.fill = PatternFill("solid", fgColor=COLOR_PRICE_VAR_HIGH)
+                        cell.font = Font(bold=True, color="7F0000")
+                    elif flag == "diff":
+                        cell.fill = PatternFill("solid", fgColor=COLOR_PRICE_DIFF)
 
                 # Format numerico per prezzo/trasporto/installazione
                 if field_name in ("prezzo", "trasporto", "installazione"):

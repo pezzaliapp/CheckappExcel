@@ -46,6 +46,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Non unire i fogli di uno stesso file: ogni foglio diventa una "
              "colonna separata nel confronto.",
     )
+    p.add_argument(
+        "-t", "--threshold",
+        type=float, default=5.0,
+        help="Percentuale oltre la quale una variazione di prezzo è considerata "
+             "significativa ed evidenziata in rosso (default: 5.0).",
+    )
     return p
 
 
@@ -67,6 +73,7 @@ def main(argv: List[str] | None = None) -> int:
         output_path=args.output,
         case_sensitive_codes=args.case_sensitive,
         merge_sheets=not args.no_merge_sheets,
+        price_variation_threshold=args.threshold,
     )
 
     print(f"→ Confronto di {len(files)} file...")
